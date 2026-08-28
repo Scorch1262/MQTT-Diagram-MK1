@@ -4,6 +4,18 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.3.0] – 2026-08-28
+
+### Hinzugefügt
+- `main.py` unterstützt jetzt Umgebungsvariablen für den headless-Betrieb
+  (z.B. auf OpenWrt-Routern): `DASHBOARD_HOST` (Bindung, z.B. `0.0.0.0`
+  für Netzwerkzugriff), `DASHBOARD_PORT` (fester Port statt automatischer
+  Suche) und `DASHBOARD_OPEN_BROWSER=0` (kein automatisches Browser-Öffnen
+  auf Geräten ohne grafische Oberfläche).
+- Neue Anleitung `docs/INSTALL_GL-MT2500A.md`: detaillierte
+  Installationsschritte für den Betrieb auf einem GL.iNet Brume 2
+  (GL-MT2500A) inkl. Autostart über ein OpenWrt-Init-Skript (procd).
+
 ## [1.2.0] – 2026-08-28
 
 ### Hinzugefügt

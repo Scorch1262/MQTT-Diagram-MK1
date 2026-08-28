@@ -69,6 +69,15 @@ pyinstaller mqtt_dashboard.spec --clean --noconfirm
 - Windows: `dist/MQTT-Mindmap-Dashboard.exe`
 - macOS: `dist/MQTT-Mindmap-Dashboard.app`
 
+## Auf einem OpenWrt-Router betreiben (z.B. GL.iNet Brume 2 / GL-MT2500A)
+
+Eine ausführliche Schritt-für-Schritt-Anleitung inkl. Autostart-Einrichtung
+findest du unter [`docs/INSTALL_GL-MT2500A.md`](docs/INSTALL_GL-MT2500A.md).
+Kurzfassung: `pip3 install -r requirements.txt` auf dem Router, dann
+`DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5000 DASHBOARD_OPEN_BROWSER=0` als
+Umgebungsvariablen setzen und per OpenWrt-Init-Skript (`procd`) automatisch
+starten lassen.
+
 ## Anwendung beenden
 
 - **Windows:** Beim Start öffnet sich automatisch ein Konsolenfenster.
