@@ -22,7 +22,6 @@ import socket
 import sys
 import threading
 import time
-import webbrowser
 
 from server import create_app, socketio
 
@@ -73,6 +72,13 @@ def main():
         def open_browser():
             time.sleep(1.0)
             try:
+                # Lokaler Import: das "webbrowser"-Modul ist z.B. auf schlanken
+                # OpenWrt-/Router-Python-Installationen oft gar nicht vorhanden
+                # (opkg teilt die Standardbibliothek in viele Einzelpakete auf).
+                # Da diese Funktion bei DASHBOARD_OPEN_BROWSER=0 ohnehin nicht
+                # aufgerufen wird, soll ein fehlendes Modul den Start nicht
+                # verhindern.
+                import webbrowser
                 webbrowser.open(url)
             except Exception:
                 pass

@@ -4,6 +4,18 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.3.1] – 2026-08-28
+
+### Behoben
+- `main.py` importierte `webbrowser` bisher fest auf Modulebene. Auf
+  schlanken OpenWrt-/Router-Python-Installationen (z.B. GL.iNet Brume 2),
+  wo `opkg` die Standardbibliothek in viele Einzelpakete aufteilt und
+  `webbrowser` fehlt, führte das selbst bei `DASHBOARD_OPEN_BROWSER=0`
+  zu einem `ModuleNotFoundError` beim Start. Der Import erfolgt jetzt
+  lokal innerhalb der Browser-Öffnen-Funktion und ist zusätzlich per
+  `try/except` abgesichert – ein fehlendes Modul verhindert den Start
+  nicht mehr.
+
 ## [1.3.0] – 2026-08-28
 
 ### Hinzugefügt

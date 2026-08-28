@@ -198,6 +198,7 @@ von außen auf das Dashboard oder den MQTT-Broker zugreifen kann.
 |---|---|
 | `pip3: not found` | Schritt 3 wiederholen bzw. `get-pip.py`-Fallback nutzen |
 | `ModuleNotFoundError` beim Start | `pip3 install -r requirements.txt` erneut ausführen, Internetverbindung des Routers prüfen |
+| `ModuleNotFoundError: No module named 'xyz'` bei einem **Standardbibliotheks**-Modul (nicht aus `requirements.txt`) | OpenWrt teilt Python 3 in viele Einzelpakete auf. Mit `opkg list \| grep python3-` nach einem passenden Paket suchen (z.B. `opkg install python3-xyz`) und installieren. Ab Version 1.3.1 ist `webbrowser` bereits kein Problem mehr. |
 | Dashboard nach Reboot nicht erreichbar | `/etc/init.d/mqttdashboard enable` erneut ausführen, `logread \| grep mqttdashboard` auf Fehler prüfen |
 | Kein Speicherplatz mehr | `df -h /overlay`; ggf. `opkg clean`/nicht benötigte Pakete entfernen |
 | Verbindung zum MQTT-Broker schlägt fehl | Erreichbarkeit des Brokers vom Router aus mit `ping <broker-ip>` testen; Firewall-Regeln des Brokers prüfen |
