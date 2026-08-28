@@ -1,0 +1,84 @@
+name: Build MQTT Mindmap Dashboard
+
+# Läuft bei jedem Push auf main/master, bei Tags "v*" und lässt sich
+# außerdem manuell über "Run workflow" auf GitHub starten.
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: MQTT-Mindmap-Dashboard-windows
+          - os: macos-latest
+            artifact_name: MQTT-Mindmap-Dashboard-macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Mit PyInstaller bauen
+        run: pyinstaller mqtt_dashboard.spec --clean --noconfirm
+
+      # Windows liefert dist/MQTT-Mindmap-Dashboard.exe (Einzeldatei)
+      - name: Windows-Artefakt vorbereiten
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p out
+          cp dist/MQTT-Mindmap-Dashboard.exe out/
+
+      # macOS liefert dist/MQTT-Mindmap-Dashboard.app (Bundle) sowie das rohe Binary
+      - name: macOS-Artefakt vorbereiten
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p out
+          cp -R dist/MQTT-Mindmap-Dashboard.app out/
+          ditto -c -k --sequesterRsrc --keepParent out/MQTT-Mindmap-Dashboard.app out/MQTT-Mindmap-Dashboard-macos.zip
+          rm -rf out/MQTT-Mindmap-Dashboard.app
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    # Bei einem Tag-Push (z.B. v1.0.0) werden beide Builds zusätzlich
+    # als GitHub-Release-Assets veröffentlicht.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Artefakte herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Release erstellen / aktualisieren
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/MQTT-Mindmap-Dashboard-windows/*
+            artifacts/MQTT-Mindmap-Dashboard-macos/*

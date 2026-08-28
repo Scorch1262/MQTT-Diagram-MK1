@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MQTT Mindmap Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header id="topbar">
+    <div id="brand">
+      <span class="brand-dot"></span>
+      <h1>MQTT Mindmap Dashboard</h1>
+    </div>
+
+    <form id="connect-form" autocomplete="off">
+      <input type="text" id="host" placeholder="Broker-IP / Hostname" required />
+      <input type="number" id="port" placeholder="Port" value="1883" min="1" max="65535" />
+      <input type="text" id="topic_filter" placeholder="Topic-Filter" value="#" />
+      <button type="button" id="toggle-advanced" class="ghost">Erweitert ▾</button>
+      <button type="submit" id="connect-btn">Verbinden</button>
+      <button type="button" id="disconnect-btn" class="danger" hidden>Trennen</button>
+    </form>
+
+    <div id="status-pill" class="status offline">
+      <span class="dot"></span><span id="status-text">Nicht verbunden</span>
+    </div>
+  </header>
+
+  <div id="advanced-panel" hidden>
+    <input type="text" id="username" placeholder="Benutzername (optional)" />
+    <input type="password" id="password" placeholder="Passwort (optional)" />
+    <input type="text" id="client_id" placeholder="Client-ID (optional)" />
+    <label class="checkbox"><input type="checkbox" id="use_tls" /> TLS verwenden</label>
+    <button type="button" id="reset-tree-btn" class="ghost">Baum leeren</button>
+  </div>
+
+  <main id="app">
+    <section id="graph-wrap">
+      <svg id="graph"></svg>
+      <div id="graph-toolbar">
+        <input type="text" id="search-box" placeholder="Topic suchen / hervorheben…" />
+        <button type="button" id="fit-btn" title="Baum einpassen">⤢</button>
+        <div id="stats">
+          <span id="node-count">0</span> Topics ·
+          <span id="msg-total">0</span> Nachrichten
+        </div>
+      </div>
+    </section>
+
+    <aside id="side-panel">
+      <div id="detail-box" class="empty">
+        <h2>Details</h2>
+        <p class="hint">Klicke auf einen Knoten in der Mindmap, um Details zur letzten Nachricht zu sehen.</p>
+      </div>
+
+      <div id="log-box">
+        <div id="log-header">
+          <h2>Nachrichtenverlauf</h2>
+          <button type="button" id="clear-log-btn" class="ghost small">Leeren</button>
+        </div>
+        <ul id="log-list"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/d3.v7.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
