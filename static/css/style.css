@@ -203,15 +203,16 @@ pre.payload {
 /* D3 graph elements */
 .link {
   fill: none;
-  stroke: var(--link);
+  stroke: var(--link); /* Fallback, wird von JS pro Zweig überschrieben */
   stroke-width: 1.6px;
+  stroke-opacity: 0.65;
 }
 .node circle {
-  fill: var(--node-fill);
-  stroke: var(--accent-strong);
+  /* Füllfarbe wird pro Knoten/Zweig dynamisch per JS gesetzt (colorFor) */
+  stroke: rgba(255, 255, 255, 0.35);
   stroke-width: 1.4px;
 }
-.node.root circle { fill: var(--accent); stroke: #d9fffb; }
+.node.root circle { stroke: #d9fffb; }
 .node text {
   fill: var(--text);
   font-size: 11px;
@@ -220,8 +221,10 @@ pre.payload {
   stroke-width: 3px;
 }
 .node.dim { opacity: 0.18; }
-.node.highlight circle { stroke: var(--warn); stroke-width: 3px; }
-.node.selected circle { stroke: #ffffff; stroke-width: 2.5px; }
+/* !important, da die Füllfarbe pro Zweig als Inline-Style gesetzt wird
+   und Inline-Styles sonst Vorrang vor diesen Klassen hätten */
+.node.highlight circle { stroke: var(--warn) !important; stroke-width: 3px !important; }
+.node.selected circle { stroke: #ffffff !important; stroke-width: 2.5px !important; }
 .node.pulse circle { animation: nodepulse 0.6s ease-out; }
 @keyframes nodepulse {
   0% { r: 6; }

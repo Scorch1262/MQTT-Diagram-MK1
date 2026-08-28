@@ -1,24 +1,29 @@
 /* MQTT Mindmap Dashboard – Frontend
  * Baut aus den vom Server per SocketIO gelieferten Topic-Knoten
- * (getrennt an "/") eine wachsende D3-Baum-/Mindmap-Ansicht.
- * Bei jeder neuen Nachricht wandert ein Marker vom betroffenen
- * Topic-Knoten (Blatt) entlang des Astes zum Broker-Knoten (Wurzel).
+ * (getrennt an "/") eine wachsende, RADIALE D3-Mindmap: die Zweige
+ * breiten sich in alle Richtungen vom Broker-Knoten (Wurzel, Mitte)
+ * aus. Jeder Hauptzweig (1. Ebene) bekommt eine eigene Farbe, die an
+ * alle Unterknoten des Zweigs vererbt wird. Bei jeder neuen Nachricht
+ * wandert ein Marker vom betroffenen Topic-Knoten den Ast entlang zum
+ * Broker-Knoten.
  */
 (() => {
   "use strict";
 
   const ROOT_ID = "__root__";
-  const DX = 26;    // vertikaler Abstand zwischen Geschwister-Knoten
-  const DY = 190;   // horizontaler Abstand zwischen Baumebenen
+  const RING = 130;        // Radius-Zuwachs pro Baumebene
+  const MIN_RADIUS = 220;  // minimaler Gesamtradius, auch bei wenig Tiefe
+  const ROOT_COLOR = "#4fd1c5";
 
   const socket = io();
 
   // ---- Zustand -----------------------------------------------------
   const nodesById = new Map();          // id -> Rohdaten vom Server
-  let layoutPositions = new Map();      // id -> {x, y} nach letztem Render
+  let layoutPositions = new Map();      // id -> {x, y} (kartesisch) nach letztem Render
   let selectedNodeId = null;
   let searchTerm = "";
   let logCount = 0;
+  let branchColorScale = d3.scaleOrdinal();
 
   // ---- SVG / Zoom Setup ---------------------------------------------
   const svg = d3.select("#graph");
@@ -28,7 +33,7 @@
   const markerLayer = zoomLayer.append("g").attr("class", "markers");
 
   const zoom = d3.zoom()
-    .scaleExtent([0.15, 3])
+    .scaleExtent([0.1, 3])
     .on("zoom", (event) => zoomLayer.attr("transform", event.transform));
   svg.call(zoom);
 
@@ -37,17 +42,50 @@
     return { w: wrap.clientWidth, h: wrap.clientHeight };
   }
 
-  // initial leichte Verschiebung, damit die Wurzel sichtbar links liegt
+  // Wurzel (Broker) mittig platzieren, Zweige strahlen rundherum aus
   function initialTransform() {
-    const { h } = graphSize();
-    return d3.zoomIdentity.translate(60, h / 2);
+    const { w, h } = graphSize();
+    return d3.zoomIdentity.translate(w / 2, h / 2);
   }
   svg.call(zoom.transform, initialTransform());
 
-  // ---- Baum-Layout ----------------------------------------------------
+  // ---- Farben pro Hauptzweig -------------------------------------------
+  function updateBranchColorScale() {
+    const topLevelIds = [];
+    for (const n of nodesById.values()) {
+      if (n.parent_id === ROOT_ID) topLevelIds.push(n.id);
+    }
+    const count = Math.max(topLevelIds.length, 3);
+    const colors = d3.quantize((t) => d3.interpolateRainbow(t * 0.92 + 0.02), count);
+    branchColorScale = d3.scaleOrdinal(colors).domain(topLevelIds);
+  }
+
+  function branchKeyOf(id) {
+    let node = nodesById.get(id);
+    if (!node || node.parent_id === null) return null; // Wurzel selbst
+    while (node.parent_id !== ROOT_ID) {
+      const parent = nodesById.get(node.parent_id);
+      if (!parent) break;
+      node = parent;
+    }
+    return node.id;
+  }
+
+  function colorFor(id, depth) {
+    if (id === ROOT_ID) return ROOT_COLOR;
+    const key = branchKeyOf(id);
+    const base = d3.color(branchColorScale(key));
+    if (!base) return ROOT_COLOR;
+    const extraDepth = Math.max(0, (depth || 1) - 1);
+    return base.brighter(Math.min(extraDepth, 4) * 0.16).formatHex();
+  }
+
+  // ---- Radiales Baum-Layout ---------------------------------------------
   function render() {
     const values = Array.from(nodesById.values());
     if (values.length === 0) return;
+
+    updateBranchColorScale();
 
     let root;
     try {
@@ -59,32 +97,40 @@
       return;
     }
 
-    const treeLayout = d3.tree().nodeSize([DX, DY]);
+    const maxDepth = Math.max(root.height, 1);
+    const radius = Math.max(MIN_RADIUS, maxDepth * RING);
+
+    const treeLayout = d3.tree()
+      .size([2 * Math.PI, radius])
+      .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
     treeLayout(root);
 
-    // x/y vertauschen -> horizontaler Baum (Wurzel links, wächst nach rechts)
     const hNodes = root.descendants();
     const hLinks = root.links();
 
     layoutPositions = new Map();
-    hNodes.forEach((n) => layoutPositions.set(n.id, { x: n.y, y: n.x }));
+    hNodes.forEach((n) => {
+      const [px, py] = d3.pointRadial(n.x, n.y);
+      layoutPositions.set(n.id, { x: px, y: py });
+    });
 
-    // ---- Links ----
-    const linkGen = d3.linkHorizontal()
-      .x((d) => d.y)
-      .y((d) => d.x);
+    // ---- Links (strahlenförmig von der Wurzel weg) ----
+    const linkGen = d3.linkRadial().angle((d) => d.x).radius((d) => d.y);
 
     linkLayer.selectAll("path.link")
       .data(hLinks, (d) => d.target.id)
       .join(
         (enter) => enter.append("path")
           .attr("class", "link")
+          .style("stroke", (d) => colorFor(d.target.id, d.target.depth))
           .attr("d", (d) => {
             const o = { x: d.source.x, y: d.source.y };
             return linkGen({ source: o, target: o });
           })
-          .call((enter) => enter.transition().duration(350).attr("d", linkGen)),
-        (update) => update.call((u) => u.transition().duration(350).attr("d", linkGen)),
+          .call((enter) => enter.transition().duration(400).attr("d", linkGen)),
+        (update) => update
+          .style("stroke", (d) => colorFor(d.target.id, d.target.depth))
+          .call((u) => u.transition().duration(400).attr("d", linkGen)),
         (exit) => exit.remove()
       );
 
@@ -95,20 +141,19 @@
     const nodeEnter = nodeSel.enter().append("g")
       .attr("class", (d) => "node" + (d.data.is_root ? " root" : ""))
       .attr("transform", (d) => {
-        const p = d.parent ? { x: d.parent.y, y: d.parent.x } : { x: d.y, y: d.x };
-        return `translate(${p.x},${p.y})`;
+        const src = d.parent || d;
+        const [px, py] = d3.pointRadial(src.x, src.y);
+        return `translate(${px},${py})`;
       })
       .style("cursor", "pointer")
       .on("click", (event, d) => selectNode(d.id));
 
-    nodeEnter.append("circle").attr("r", (d) => (d.data.is_root ? 9 : 6));
-    nodeEnter.append("text")
-      .attr("dy", "0.32em")
-      .attr("x", (d) => (d.children ? -12 : 12))
-      .attr("text-anchor", (d) => (d.children ? "end" : "start"))
-      .text((d) => d.data.name);
+    nodeEnter.append("circle").attr("r", (d) => (d.data.is_root ? 10 : 6));
+    nodeEnter.append("text").attr("dy", "0.32em");
 
-    nodeEnter.merge(nodeSel)
+    const merged = nodeEnter.merge(nodeSel);
+
+    merged
       .attr("class", (d) => {
         const cls = ["node"];
         if (d.data.is_root) cls.push("root");
@@ -117,16 +162,23 @@
         else if (searchTerm) cls.push("dim");
         return cls.join(" ");
       })
-      .transition().duration(350)
-      .attr("transform", (d) => `translate(${d.y},${d.x})`);
+      .transition().duration(400)
+      .attr("transform", (d) => {
+        const [px, py] = d3.pointRadial(d.x, d.y);
+        return `translate(${px},${py})`;
+      });
 
-    nodeEnter.merge(nodeSel).select("text")
-      .attr("x", (d) => (d.children ? -12 : 12))
-      .attr("text-anchor", (d) => (d.children ? "end" : "start"));
+    merged.select("circle")
+      .style("fill", (d) => colorFor(d.id, d.depth));
+
+    merged.select("text")
+      .attr("x", (d) => (layoutPositions.get(d.id).x >= 0 ? 10 : -10))
+      .attr("text-anchor", (d) => (layoutPositions.get(d.id).x >= 0 ? "start" : "end"))
+      .text((d) => d.data.name);
 
     nodeSel.exit().remove();
 
-    document.getElementById("node-count").textContent = hNodes.length - 1 >= 0 ? hNodes.length - 1 : 0;
+    document.getElementById("node-count").textContent = Math.max(hNodes.length - 1, 0);
   }
 
   function matchesSearch(d) {
@@ -329,10 +381,10 @@
     if (positions.length === 0) return;
     const xs = positions.map((p) => p.x);
     const ys = positions.map((p) => p.y);
-    const minX = Math.min(...xs) - 40, maxX = Math.max(...xs) + 200;
-    const minY = Math.min(...ys) - 40, maxY = Math.max(...ys) + 40;
+    const minX = Math.min(...xs) - 60, maxX = Math.max(...xs) + 60;
+    const minY = Math.min(...ys) - 60, maxY = Math.max(...ys) + 60;
     const { w, h } = graphSize();
-    const scale = Math.max(0.2, Math.min(2, 0.9 / Math.max((maxX - minX) / w, (maxY - minY) / h)));
+    const scale = Math.max(0.15, Math.min(2, 0.9 / Math.max((maxX - minX) / w, (maxY - minY) / h)));
     const tx = w / 2 - scale * (minX + maxX) / 2;
     const ty = h / 2 - scale * (minY + maxY) / 2;
     svg.transition().duration(400)
