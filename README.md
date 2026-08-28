@@ -1,5 +1,7 @@
 # MQTT Mindmap Dashboard
 
+![Bild](Bild.png)
+
 Ein kleines Python-Programm, das einen lokalen Webserver startet und im
 Browser eine **live wachsende Mindmap/Baumansicht** aller Topics und
 Nachrichten eines MQTT-Brokers anzeigt.
