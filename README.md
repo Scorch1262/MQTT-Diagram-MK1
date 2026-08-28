@@ -37,6 +37,9 @@ static/js/app.js     D3-Mindmap, Live-Updates, Marker-Animation
 static/js/d3.v7.min.js, static/js/socket.io.min.js
                       Lokal mitgelieferte Bibliotheken (funktioniert offline)
 mqtt_dashboard.spec  PyInstaller-Spezifikation (Windows + macOS)
+packaging/macos/launch_in_terminal.sh
+                      Wrapper, der beim macOS-Start ein sichtbares
+                      Terminal-Fenster öffnet (zum leichten Beenden)
 .github/workflows/build.yml
                       GitHub-Actions-Workflow: baut .exe (Windows) und
                       .app (macOS) und lädt sie als Artefakte/Release hoch
@@ -63,6 +66,16 @@ pyinstaller mqtt_dashboard.spec --clean --noconfirm
 
 - Windows: `dist/MQTT-Mindmap-Dashboard.exe`
 - macOS: `dist/MQTT-Mindmap-Dashboard.app`
+
+## Anwendung beenden
+
+- **Windows:** Beim Start öffnet sich automatisch ein Konsolenfenster.
+  Einfach schließen oder STRG+C drücken.
+- **macOS:** Beim Start öffnet sich automatisch ein **Terminal-Fenster**,
+  in dem das Programm läuft (technisch: ein kleiner Wrapper startet die
+  eigentliche Anwendung sichtbar in Terminal.app – macOS-Apps zeigen
+  Konsolenausgaben sonst nur versteckt im `Console.app`-Log an). Zum
+  Beenden im Terminal-Fenster STRG+C drücken oder das Fenster schließen.
 
 ## Hinweise
 

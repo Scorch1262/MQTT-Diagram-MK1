@@ -48,6 +48,19 @@ jobs:
           mkdir -p out
           cp dist/MQTT-Mindmap-Dashboard.exe out/
 
+      # macOS: die eigentliche Binärdatei im .app-Bundle wird durch ein kleines
+      # Wrapper-Skript ersetzt, das beim Start ein sichtbares Terminal-Fenster
+      # öffnet und darin das Programm ausführt (siehe packaging/macos).
+      # So lässt sich die Anwendung bequem per STRG+C oder durch Schließen
+      # des Terminal-Fensters wieder beenden.
+      - name: macOS – Terminal-Wrapper einsetzen
+        if: runner.os == 'macOS'
+        run: |
+          MACOS_DIR="dist/MQTT-Mindmap-Dashboard.app/Contents/MacOS"
+          mv "$MACOS_DIR/MQTT-Mindmap-Dashboard" "$MACOS_DIR/MQTT-Mindmap-Dashboard-bin"
+          cp packaging/macos/launch_in_terminal.sh "$MACOS_DIR/MQTT-Mindmap-Dashboard"
+          chmod +x "$MACOS_DIR/MQTT-Mindmap-Dashboard" "$MACOS_DIR/MQTT-Mindmap-Dashboard-bin"
+
       # macOS liefert dist/MQTT-Mindmap-Dashboard.app (Bundle) sowie das rohe Binary
       - name: macOS-Artefakt vorbereiten
         if: runner.os == 'macOS'

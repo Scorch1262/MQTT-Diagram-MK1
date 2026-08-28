@@ -4,6 +4,19 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.0] – 2026-08-28
+
+### Hinzugefügt
+- macOS: Beim Start der `.app` öffnet sich jetzt automatisch ein
+  sichtbares **Terminal-Fenster**, in dem das Programm läuft. Grund:
+  macOS zeigt Konsolenausgaben von App-Bundles sonst nicht sichtbar an,
+  wodurch die Anwendung nur über die Aktivitätsanzeige zu beenden war.
+  Jetzt reicht STRG+C oder das Schließen des Terminal-Fensters.
+- Neue Datei `packaging/macos/launch_in_terminal.sh`: kleines
+  Wrapper-Skript, das im GitHub-Actions-Workflow anstelle der eigentlichen
+  Binärdatei in `Contents/MacOS/` eingesetzt wird und per AppleScript ein
+  Terminal-Fenster mit der eigentlichen Anwendung öffnet.
+
 ## [1.1.0] – 2026-08-28
 
 ### Geändert
