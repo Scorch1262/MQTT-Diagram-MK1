@@ -114,6 +114,20 @@
       layoutPositions.set(n.id, { x: px, y: py });
     });
 
+    // ---- Astdicke: je mehr Sub-Topics an einem Knoten hängen, desto
+    // dicker wird der zu ihm führende Ast dargestellt --------------------
+    const subtreeSize = new Map(); // id -> Anzahl Knoten im eigenen Teilbaum (inkl. sich selbst)
+    [...hNodes].sort((a, b) => b.depth - a.depth).forEach((n) => {
+      let size = 1;
+      if (n.children) {
+        for (const c of n.children) size += subtreeSize.get(c.id) || 1;
+      }
+      subtreeSize.set(n.id, size);
+    });
+    const branchWeight = (id) => Math.max(0, (subtreeSize.get(id) || 1) - 1);
+    const maxWeight = Math.max(1, ...hNodes.map((n) => branchWeight(n.id)));
+    const widthScale = d3.scaleSqrt().domain([0, maxWeight]).range([1.6, 10]).clamp(true);
+
     // ---- Links (strahlenförmig von der Wurzel weg) ----
     const linkGen = d3.linkRadial().angle((d) => d.x).radius((d) => d.y);
 
@@ -123,6 +137,7 @@
         (enter) => enter.append("path")
           .attr("class", "link")
           .style("stroke", (d) => colorFor(d.target.id, d.target.depth))
+          .style("stroke-width", (d) => `${widthScale(branchWeight(d.target.id))}px`)
           .attr("d", (d) => {
             const o = { x: d.source.x, y: d.source.y };
             return linkGen({ source: o, target: o });
@@ -130,6 +145,7 @@
           .call((enter) => enter.transition().duration(400).attr("d", linkGen)),
         (update) => update
           .style("stroke", (d) => colorFor(d.target.id, d.target.depth))
+          .style("stroke-width", (d) => `${widthScale(branchWeight(d.target.id))}px`)
           .call((u) => u.transition().duration(400).attr("d", linkGen)),
         (exit) => exit.remove()
       );

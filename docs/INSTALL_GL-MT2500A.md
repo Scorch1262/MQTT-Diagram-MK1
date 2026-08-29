@@ -1,27 +1,37 @@
-# MQTT Mindmap Dashboard auf dem GL.iNet Brume 2 (GL-MT2500A) installieren
+# MQTT Mindmap Dashboard auf dem GL.iNet Brume 2 (GL-MT2500A)
 
-Diese Anleitung installiert das Dashboard **nativ** (ohne Docker) direkt im
-OpenWrt-Betriebssystem des Brume 2 und richtet einen Autostart per
-Init-Skript (`procd`) ein, sodass das Dashboard nach jedem Neustart des
-Routers automatisch läuft.
+Vollständige Anleitung: Installation, Autostart per OpenWrt-Init-Skript und
+Fehlerbehebung. Diese Version fasst alle Schritte inkl. der in der Praxis
+aufgetretenen Stolpersteine (SFTP, PQ-Warnung, fehlendes `webbrowser`-Modul)
+an einem Ort zusammen.
 
-## Warum kein Docker?
+## Geräte-Eckdaten
 
-Der Brume 2 hat nur **1 GB RAM**. Docker lässt sich zwar manuell per `opkg`
-nachrüsten, frisst aber selbst schon 50–100 MB RAM und zusätzlich Flash für
+MediaTek MT7981B (Filogic 820), Dual-Core ARM Cortex-A53 @ 1,3 GHz,
+**1 GB RAM**, 8 GB eMMC, OpenWrt 21.02-Basis, **kein WLAN** (nur 1× LAN,
+1× WAN, USB 3.0).
+
+## Warum keine Docker-Installation?
+
+Der Brume 2 hat nur 1 GB RAM. Docker lässt sich zwar manuell per `opkg`
+nachrüsten, frisst aber selbst schon 50–100 MB RAM zusätzlich zu Flash für
 Images. Da alle Python-Abhängigkeiten dieses Projekts (Flask, Flask-SocketIO,
 paho-mqtt, …) **reiner Python-Code ohne Compiler-Anforderungen** sind, lässt
-sich das Dashboard direkt und deutlich sparsamer mit `opkg`/`pip3` installieren.
+sich das Dashboard direkt und deutlich sparsamer mit `opkg`/`pip3`
+installieren.
 
 ## Voraussetzungen
 
-- Brume 2 mit aktueller GL.iNet-Firmware (OpenWrt 21.02-Basis), per LAN-Kabel
-  mit deinem PC verbunden.
-- Der Brume 2 hat **Internetzugang** (WAN-Port angeschlossen), da für die
-  Installation Pakete aus dem Internet geladen werden.
-- SSH-Zugriff aktiviert (Standard bei GL.iNet-Firmware): Admin-Oberfläche
-  unter `http://192.168.8.1` → **Mehr Einstellungen → SSH** ist i.d.R.
-  bereits aktiv; Login-Daten sind dieselben wie für die Weboberfläche.
+- Brume 2 mit aktueller GL.iNet-Firmware, per LAN-Kabel mit deinem PC/Mac
+  verbunden.
+- Der Brume 2 hat **Internetzugang** (WAN-Port angeschlossen) – für die
+  Installation werden Pakete aus dem Internet geladen.
+- SSH-Zugriff aktiviert (bei GL.iNet-Firmware i.d.R. bereits Standard):
+  Admin-Oberfläche unter `http://192.168.8.1` (bzw. deiner konfigurierten
+  LAN-IP) → **Mehr Einstellungen → SSH**. Login-Daten sind dieselben wie für
+  die Weboberfläche.
+
+---
 
 ## 1. Per SSH auf den Router verbinden
 
@@ -29,13 +39,21 @@ sich das Dashboard direkt und deutlich sparsamer mit `opkg`/`pip3` installieren.
 ssh root@192.168.8.1
 ```
 
-Passwort eingeben (das Admin-Passwort der GL.iNet-Weboberfläche).
+Passwort eingeben (Admin-Passwort der GL.iNet-Weboberfläche).
+
+> **Hinweis „WARNING: connection is not using a post-quantum key exchange…“**
+> Das ist keine Fehlermeldung, sondern nur eine informative Warnung
+> moderner SSH-Clients (macOS/OpenSSH 9.x+), weil der ältere SSH-Server des
+> Routers noch keine quantensicheren Schlüsselaustausch-Verfahren
+> unterstützt. Für eine Verbindung zum eigenen Heim-Router im lokalen Netz
+> ist das unbedenklich – einfach ignorieren, die Verbindung funktioniert
+> normal.
 
 ## 2. System prüfen und Paketlisten aktualisieren
 
 ```sh
 cat /etc/openwrt_release       # Firmware-Version zur Kontrolle
-df -h /overlay                 # freien Speicherplatz prüfen (mehrere GB frei)
+df -h /overlay                 # freien Speicherplatz prüfen
 opkg update
 ```
 
@@ -45,31 +63,43 @@ opkg update
 opkg install python3 python3-pip python3-light ca-bundle ca-certificates
 ```
 
-Falls `python3-pip` in den GL.iNet-Feeds nicht gefunden wird (kommt bei
-älteren Firmware-Ständen vor), pip alternativ per Bootstrap-Skript
-nachrüsten:
+Falls `python3-pip` in den GL.iNet-Feeds nicht gefunden wird:
 
 ```sh
 opkg install python3
 cd /tmp
-wget https://bootstrap.pypa.io/pip/3.9/get-pip.py   # Python-Version anpassen, siehe unten
+wget https://bootstrap.pypa.io/pip/3.9/get-pip.py   # Python-Version anpassen
 python3 get-pip.py
 ```
 
-Python-Version herausfinden mit `python3 --version`, dann bei Bedarf im
-`get-pip.py`-Link die passende Version (z.B. `3.10`) verwenden.
+Python-Version mit `python3 --version` prüfen und ggf. im `get-pip.py`-Link
+die passende Version (z.B. `3.10`) verwenden.
 
 ## 4. Projektdateien auf den Router kopieren
 
-Am einfachsten von deinem PC/Mac aus per `scp` (im Ordner, der den
-`mqtt-dashboard`-Projektordner enthält, ausführen):
+Von deinem PC/Mac aus, im Ordner, der den `mqtt-dashboard`-Projektordner
+enthält:
 
 ```bash
-scp -r mqtt-dashboard root@192.168.8.1:/root/
+scp -O -r mqtt-dashboard root@192.168.8.1:/root/
 ```
 
-Alternativ, falls der Router direkten Internetzugriff auf dein Git-Repository
-hat, per `git clone` oder `wget` auf dem Router selbst.
+> **Warum `-O`?** Moderne `scp`-Versionen (macOS/OpenSSH 9.x) nutzen
+> standardmäßig das SFTP-Protokoll. Auf dem Router fehlt dafür aber meist
+> das `sftp-server`-Binary, was zu folgendem Fehler führt:
+> ```
+> ash: /usr/libexec/sftp-server: not found
+> scp: Connection closed
+> ```
+> Der Schalter `-O` (großes O) erzwingt das klassische SCP-Protokoll, das
+> kein `sftp-server` auf dem Router benötigt.
+>
+> **Alternative** (funktioniert immer, auch ohne `-O`):
+> ```bash
+> tar czf - -C /Pfad/zum/Elternordner mqtt-dashboard | ssh root@192.168.8.1 "cd /root && tar xzf -"
+> ```
+> **Permanente Lösung:** `opkg install openssh-sftp-server` auf dem Router,
+> dann funktioniert normales `scp` ohne `-O`.
 
 ## 5. Python-Abhängigkeiten installieren
 
@@ -80,28 +110,34 @@ cd /root/mqtt-dashboard
 pip3 install -r requirements.txt
 ```
 
-Das dauert je nach Internetverbindung 1–3 Minuten. Da alle Pakete reine
+Dauert je nach Internetverbindung 1–3 Minuten. Da alle Pakete reine
 Python-Wheels sind, ist kein Compiler nötig.
 
-**Kurzer Funktionstest** (Strg+C zum Beenden):
+## 6. Funktionstest
 
 ```sh
 DASHBOARD_HOST=0.0.0.0 DASHBOARD_PORT=5000 DASHBOARD_OPEN_BROWSER=0 python3 main.py
 ```
 
-Jetzt von einem beliebigen Gerät im LAN des Brume 2 im Browser
-`http://192.168.8.1:5000` aufrufen (IP ggf. anpassen, falls du die
-Router-IP geändert hast) – das Dashboard sollte erscheinen. Mit `Strg+C`
-den Test wieder beenden.
+- `DASHBOARD_HOST=0.0.0.0` macht das Dashboard für jedes Gerät im LAN
+  erreichbar (nicht nur den Router selbst).
+- `DASHBOARD_PORT=5000` legt einen festen Port fest.
+- `DASHBOARD_OPEN_BROWSER=0` verhindert den (auf einem Router ohnehin
+  zwecklosen) Versuch, einen Browser zu öffnen.
 
-> **Wichtig:** `DASHBOARD_HOST=0.0.0.0` sorgt dafür, dass das Dashboard von
-> jedem Gerät im LAN erreichbar ist (nicht nur vom Router selbst).
-> `DASHBOARD_OPEN_BROWSER=0` verhindert den (auf einem Router ohnehin
-> zwecklosen) Versuch, einen Browser zu öffnen.
+Anschließend von einem beliebigen Gerät im LAN des Brume 2 im Browser
+`http://192.168.8.1:5000` aufrufen (IP ggf. anpassen) – das Dashboard
+sollte erscheinen. Mit `Strg+C` den Test beenden.
 
-## 6. Autostart per Init-Skript (procd) einrichten
+> Ab Programmversion **1.3.1** ist der Import des (auf schlanken
+> OpenWrt-Python-Installationen oft fehlenden) `webbrowser`-Moduls
+> abgesichert; bei älteren Ständen kann hier ein
+> `ModuleNotFoundError: No module named 'webbrowser'` auftreten –
+> siehe Fehlerbehebung unten.
 
-Datei `/etc/init.d/mqttdashboard` mit folgendem Inhalt anlegen:
+## 7. Autostart per Init-Skript (procd) einrichten
+
+Datei `/etc/init.d/mqttdashboard` anlegen:
 
 ```sh
 cat > /etc/init.d/mqttdashboard << 'EOF'
@@ -132,7 +168,7 @@ EOF
 chmod +x /etc/init.d/mqttdashboard
 ```
 
-Dienst aktivieren (Autostart beim Booten) und sofort starten:
+Autostart aktivieren und Dienst sofort starten:
 
 ```sh
 /etc/init.d/mqttdashboard enable
@@ -142,18 +178,22 @@ Dienst aktivieren (Autostart beim Booten) und sofort starten:
 `respawn 3600 5 5` sorgt dafür, dass `procd` das Dashboard automatisch neu
 startet, falls es einmal abstürzen sollte.
 
-## 7. Prüfen, ob alles läuft
+## 8. Prüfen, ob alles läuft
 
 ```sh
 ps | grep main.py                 # Prozess sollte laufen
-netstat -tlnp | grep 5000         # Port 5000 sollte lauschen (ggf. "ss -tlnp" statt netstat)
+netstat -tlnp | grep 5000         # Port 5000 sollte lauschen (ggf. "ss -tlnp")
 logread | grep mqttdashboard      # Log-Ausgaben ansehen
+service mqttdashboard status      # procd-Status
 ```
 
-Im Browser (von einem Gerät im LAN des Routers):
-`http://192.168.8.1:5000`
+Im Browser (von einem Gerät im LAN des Routers): `http://192.168.8.1:5000`
 
-## 8. Autostart testen
+**Falls kein Prozess läuft / kein Port offen ist:** zuerst den manuellen
+Test aus Schritt 6 wiederholen, um den tatsächlichen Fehler zu sehen –
+`procd` verschluckt Startfehler oft stillschweigend.
+
+## 9. Autostart testen
 
 ```sh
 reboot
@@ -161,6 +201,8 @@ reboot
 
 Nach dem Neustart (ca. 1 Minute warten) erneut `http://192.168.8.1:5000`
 aufrufen – das Dashboard sollte ohne weiteres Zutun automatisch laufen.
+
+---
 
 ## Dienst verwalten
 
@@ -174,7 +216,7 @@ aufrufen – das Dashboard sollte ohne weiteres Zutun automatisch laufen.
 
 ```bash
 # vom PC aus, überschreibt die Projektdateien auf dem Router
-scp -r mqtt-dashboard root@192.168.8.1:/root/
+scp -O -r mqtt-dashboard root@192.168.8.1:/root/
 ```
 
 ```sh
@@ -189,16 +231,23 @@ pip3 install -r requirements.txt   # falls sich requirements.txt geändert hat
 Der Brume 2 hat **kein WLAN** – Geräte müssen entweder direkt per Kabel am
 LAN-Port hängen oder über einen nachgeschalteten Switch/Access Point mit dem
 LAN des Brume 2 verbunden sein. Das Dashboard ist standardmäßig nur im LAN
-erreichbar (nicht über WAN) – für die Sicherheit von Vorteil, da so niemand
-von außen auf das Dashboard oder den MQTT-Broker zugreifen kann.
+erreichbar (nicht über WAN) – von Vorteil für die Sicherheit, da niemand von
+außen auf das Dashboard oder den MQTT-Broker zugreifen kann.
+
+---
 
 ## Fehlerbehebung
 
 | Problem | Lösung |
 |---|---|
-| `pip3: not found` | Schritt 3 wiederholen bzw. `get-pip.py`-Fallback nutzen |
-| `ModuleNotFoundError` beim Start | `pip3 install -r requirements.txt` erneut ausführen, Internetverbindung des Routers prüfen |
-| `ModuleNotFoundError: No module named 'xyz'` bei einem **Standardbibliotheks**-Modul (nicht aus `requirements.txt`) | OpenWrt teilt Python 3 in viele Einzelpakete auf. Mit `opkg list \| grep python3-` nach einem passenden Paket suchen (z.B. `opkg install python3-xyz`) und installieren. Ab Version 1.3.1 ist `webbrowser` bereits kein Problem mehr. |
-| Dashboard nach Reboot nicht erreichbar | `/etc/init.d/mqttdashboard enable` erneut ausführen, `logread \| grep mqttdashboard` auf Fehler prüfen |
-| Kein Speicherplatz mehr | `df -h /overlay`; ggf. `opkg clean`/nicht benötigte Pakete entfernen |
-| Verbindung zum MQTT-Broker schlägt fehl | Erreichbarkeit des Brokers vom Router aus mit `ping <broker-ip>` testen; Firewall-Regeln des Brokers prüfen |
+| `WARNING: connection is not using a post-quantum key exchange…` beim SSH-Login | Reine Info-Warnung, unbedenklich im Heimnetz – ignorieren. |
+| `ash: /usr/libexec/sftp-server: not found` / `scp: Connection closed` beim Kopieren | `scp -O -r …` verwenden (erzwingt klassisches SCP-Protokoll) oder `tar`-über-SSH-Alternative nutzen. Dauerhaft: `opkg install openssh-sftp-server`. |
+| `pip3: not found` | Schritt 3 wiederholen bzw. `get-pip.py`-Fallback nutzen. |
+| `ModuleNotFoundError: No module named 'webbrowser'` beim Start | Betrifft Programmversionen vor 1.3.1. Update auf 1.3.1+ einspielen (`main.py` ersetzen), dort ist der Import abgesichert. |
+| `ModuleNotFoundError` für ein anderes **Standardbibliotheks**-Modul (nicht aus `requirements.txt`) | OpenWrt teilt Python 3 in viele Einzelpakete auf. Mit `opkg list \| grep python3-` nach einem passenden Paket suchen und installieren (z.B. `opkg install python3-xyz`). |
+| `ModuleNotFoundError` für ein Paket **aus** `requirements.txt` (Flask, paho-mqtt, …) | `pip3 install -r requirements.txt` erneut ausführen, Internetverbindung des Routers prüfen. |
+| Dienst startet nicht, `ps`/`netstat` zeigen nichts | Manuellen Test (Schritt 6) ausführen, um den echten Fehler zu sehen – `procd` protokolliert Startfehler oft nur unzureichend. Danach `logread \| grep mqttdashboard` prüfen. |
+| Falscher Python-Pfad im Init-Skript | `which python3` prüfen; Ergebnis ggf. als `PROG=` im Init-Skript eintragen. |
+| Dashboard nach Reboot nicht erreichbar | `/etc/init.d/mqttdashboard enable` erneut ausführen, `logread \| grep mqttdashboard` auf Fehler prüfen. |
+| Kein Speicherplatz mehr | `df -h /overlay`; ggf. `opkg clean` / nicht benötigte Pakete entfernen. |
+| Verbindung zum MQTT-Broker schlägt fehl | Erreichbarkeit des Brokers vom Router aus mit `ping <broker-ip>` testen; Firewall-Regeln des Brokers prüfen. |

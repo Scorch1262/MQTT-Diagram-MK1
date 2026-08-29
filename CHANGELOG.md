@@ -4,6 +4,16 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.4.0] – 2026-08-28
+
+### Hinzugefügt
+- Ast-Dicke im Mindmap-Diagramm ist jetzt abhängig von der Anzahl der
+  Sub-Topics, die von einem Knoten abzweigen: Äste zu Knoten mit vielen
+  (verschachtelten) Unterknoten werden dicker gezeichnet als Äste zu
+  einzelnen Blatt-Topics. Skalierung erfolgt mit einer Quadratwurzel-Skala
+  (`d3.scaleSqrt`, Bereich 1,6–10 px), damit auch sehr große Zweige die
+  kleinen nicht optisch verschwinden lassen.
+
 ## [1.3.1] – 2026-08-28
 
 ### Behoben
