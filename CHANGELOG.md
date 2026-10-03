@@ -4,6 +4,36 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.5.0] – 2026-10-03
+
+### Hinzugefügt
+- Neue **Ring-Ansicht** als Alternative zur bisherigen radialen Mindmap,
+  umschaltbar über zwei Buttons ("Mindmap" / "Ring") oben links im
+  Diagramm-Werkzeugkasten. Vorbild ist die Canvas-Ring-Darstellung aus
+  MQTT-Monitor-Dashboard-MK1: der Broker sitzt als Kreis in der Mitte,
+  alle aktuell bekannten Topics (Blätter des Themenbaums) werden als
+  Knoten auf einem Ring darum herum angeordnet und per Linie mit dem
+  Broker verbunden. Bei jeder neuen Nachricht pulsiert die betroffene
+  Verbindungslinie sowie der Topic- und der Broker-Knoten kurz amberfarben
+  auf.
+- Die Ring-Ansicht teilt sich Daten, Farblogik (`colorFor`/
+  `updateBranchColorScale`) und die Suchfunktion mit der Mindmap-Ansicht:
+  Klick auf einen Topic-Knoten öffnet dieselbe Detailanzeige, die
+  Topic-Suche blendet nicht passende Knoten ab.
+- **Hinweis zum Funktionsumfang:** Anders als im Vorbild gibt es in der
+  Ring-Ansicht keinen separaten Client-Ring. Dieses Programm verbindet
+  sich als reiner Abonnent mit einem beliebigen externen MQTT-Broker und
+  kennt daher – im Gegensatz zum eingebetteten Broker im Vorbild-Projekt –
+  grundsätzlich keine einzelnen Client-IDs der Publisher. Die Ring-Ansicht
+  zeigt deshalb Broker und Topics, aber keine Clients.
+
+### Behoben
+- Beim Umschalten zwischen den beiden Ansichten blieb die SVG-Mindmap
+  bisher sichtbar, obwohl sie per `.hidden`-Property ausgeblendet werden
+  sollte: Bei `<svg>`-Elementen wird diese Property von Chromium nicht
+  zuverlässig auf das HTML-Attribut zurückgespiegelt. Die Sichtbarkeit
+  wird jetzt stattdessen über eine CSS-Klasse (`view-hidden`) gesteuert.
+
 ## [1.4.0] – 2026-08-28
 
 ### Hinzugefügt

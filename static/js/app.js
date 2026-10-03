@@ -390,7 +390,9 @@
     render();
   });
 
-  document.getElementById("fit-btn").addEventListener("click", fitToScreen);
+  document.getElementById("fit-btn").addEventListener("click", () => {
+    if (currentView === "mindmap") fitToScreen();
+  });
 
   function fitToScreen() {
     const positions = Array.from(layoutPositions.values());
@@ -407,5 +409,206 @@
       .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
-  window.addEventListener("resize", () => render());
+  window.addEventListener("resize", () => {
+    if (currentView === "mindmap") render();
+  });
+
+  // =====================================================================
+  // Ring-Ansicht (Canvas) – alternative Darstellung nach dem Vorbild des
+  // MQTT-Monitor-Dashboard-MK1: Broker in der Mitte, Topics als Knoten auf
+  // einem Ring darum herum. Bei jeder Nachricht pulsiert die Verbindung
+  // zwischen Broker und dem betroffenen Topic auf. Eine eigene Client-Ebene
+  // gibt es hier nicht, da dieses Programm als reiner Subscriber an einem
+  // beliebigen externen Broker hängt und somit (anders als der eingebettete
+  // Broker im Vorbild) keine Kenntnis über einzelne MQTT-Clients hat – nur
+  // über Topics und deren Nachrichten.
+  // =====================================================================
+
+  let currentView = "mindmap";
+  const ringCanvas = document.getElementById("ring-canvas");
+  const ringCtx = ringCanvas.getContext("2d");
+  const ringFlashes = []; // { id, ts }
+  let ringAnimHandle = null;
+
+  function ringTopicNodes() {
+    const hasChildren = new Set();
+    for (const n of nodesById.values()) {
+      if (n.parent_id) hasChildren.add(n.parent_id);
+    }
+    const leaves = [];
+    for (const n of nodesById.values()) {
+      if (n.id === ROOT_ID) continue;
+      if (!hasChildren.has(n.id)) leaves.push(n);
+    }
+    leaves.sort((a, b) => a.id.localeCompare(b.id));
+    return leaves;
+  }
+
+  function ringNodeDepth(id) {
+    let depth = 0;
+    let node = nodesById.get(id);
+    while (node && node.parent_id && node.parent_id !== ROOT_ID) {
+      node = nodesById.get(node.parent_id);
+      depth++;
+    }
+    return depth + 1;
+  }
+
+  function resizeRingCanvas() {
+    const wrap = document.getElementById("graph-wrap");
+    ringCanvas.width = wrap.clientWidth;
+    ringCanvas.height = wrap.clientHeight;
+  }
+
+  function drawRing() {
+    resizeRingCanvas();
+    const w = ringCanvas.width, h = ringCanvas.height;
+    const cx = w / 2, cy = h / 2;
+    const radius = Math.max(120, Math.min(w, h) * 0.42);
+    ringCtx.clearRect(0, 0, w, h);
+
+    updateBranchColorScale();
+    const topics = ringTopicNodes();
+    const now = performance.now();
+
+    // veraltete Flashes entfernen
+    while (ringFlashes.length && now - ringFlashes[0].ts > 900) ringFlashes.shift();
+    const flashAge = new Map();
+    for (const f of ringFlashes) {
+      const age = now - f.ts;
+      if (!flashAge.has(f.id) || flashAge.get(f.id) > age) flashAge.set(f.id, age);
+    }
+
+    const rootNode = nodesById.get(ROOT_ID);
+    const brokerFlash = flashAge.has(ROOT_ID) ? Math.max(0, 1 - flashAge.get(ROOT_ID) / 900) : 0;
+
+    const positions = new Map();
+    topics.forEach((t, i) => {
+      const angle = (i / Math.max(topics.length, 1)) * 2 * Math.PI - Math.PI / 2;
+      positions.set(t.id, {
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
+    });
+
+    // ---- Verbindungslinien Broker <-> Topic ----
+    topics.forEach((t) => {
+      const p = positions.get(t.id);
+      const age = flashAge.get(t.id);
+      const flash = age !== undefined ? Math.max(0, 1 - age / 900) : 0;
+      const dimmed = searchTerm && !matchesSearch({ id: t.id, data: t });
+      const color = colorFor(t.id, ringNodeDepth(t.id));
+      ringCtx.beginPath();
+      ringCtx.moveTo(cx, cy);
+      ringCtx.lineTo(p.x, p.y);
+      if (flash > 0) {
+        ringCtx.strokeStyle = `rgba(246, 173, 85, ${0.35 + flash * 0.65})`;
+        ringCtx.lineWidth = 1.5 + flash * 3.5;
+      } else {
+        ringCtx.strokeStyle = dimmed ? "rgba(255,255,255,0.08)" : hexToRgba(color, 0.35);
+        ringCtx.lineWidth = 1.4;
+      }
+      ringCtx.stroke();
+    });
+
+    // ---- Broker-Knoten (Mitte) ----
+    const brokerR = 26 + brokerFlash * 6;
+    ringCtx.beginPath();
+    ringCtx.arc(cx, cy, brokerR, 0, 2 * Math.PI);
+    ringCtx.fillStyle = brokerFlash > 0 ? "#f6ad55" : ROOT_COLOR;
+    ringCtx.fill();
+    ringCtx.lineWidth = 2;
+    ringCtx.strokeStyle = "rgba(255,255,255,0.4)";
+    ringCtx.stroke();
+    ringCtx.fillStyle = "#06251f";
+    ringCtx.font = "bold 11px " + getComputedStyle(document.body).fontFamily;
+    ringCtx.textAlign = "center";
+    ringCtx.textBaseline = "middle";
+    ringCtx.fillText("BROKER", cx, cy);
+
+    // ---- Topic-Knoten ----
+    topics.forEach((t) => {
+      const p = positions.get(t.id);
+      const age = flashAge.get(t.id);
+      const flash = age !== undefined ? Math.max(0, 1 - age / 900) : 0;
+      const dimmed = searchTerm && !matchesSearch({ id: t.id, data: t });
+      const color = colorFor(t.id, ringNodeDepth(t.id));
+      const r = 6 + Math.min(10, Math.log2((t.msg_count || 0) + 1)) + flash * 3;
+
+      ringCtx.beginPath();
+      ringCtx.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      ringCtx.fillStyle = flash > 0 ? "#f6ad55" : (dimmed ? "rgba(255,255,255,0.15)" : color);
+      ringCtx.fill();
+      ringCtx.lineWidth = t.id === selectedNodeId ? 2.5 : 1.2;
+      ringCtx.strokeStyle = t.id === selectedNodeId ? "#ffffff" : "rgba(255,255,255,0.35)";
+      ringCtx.stroke();
+
+      if (!dimmed || flash > 0) {
+        ringCtx.fillStyle = "#e7ecf7";
+        ringCtx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
+        ringCtx.textAlign = "center";
+        ringCtx.textBaseline = "top";
+        const label = (t.name || t.id).length > 16 ? (t.name || t.id).slice(0, 15) + "…" : (t.name || t.id);
+        ringCtx.fillText(label, p.x, p.y + r + 3);
+      }
+    });
+
+    ringClickTargets = topics.map((t) => ({ id: t.id, x: positions.get(t.id).x, y: positions.get(t.id).y, r: 14 }));
+  }
+
+  function hexToRgba(hex, alpha) {
+    const c = d3.color(hex);
+    if (!c) return `rgba(255,255,255,${alpha})`;
+    const rgb = c.rgb();
+    return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+  }
+
+  let ringClickTargets = [];
+  ringCanvas.addEventListener("click", (event) => {
+    const rect = ringCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    for (const t of ringClickTargets) {
+      if (Math.hypot(t.x - x, t.y - y) <= t.r) {
+        selectNode(t.id);
+        break;
+      }
+    }
+  });
+
+  function ringLoop() {
+    if (currentView !== "ring") return;
+    drawRing();
+    ringAnimHandle = requestAnimationFrame(ringLoop);
+  }
+
+  function switchView(view) {
+    if (view === currentView) return;
+    currentView = view;
+    // Hinweis: <svg>-Elemente spiegeln die .hidden-Property nicht
+    // zuverlässig auf das HTML-Attribut zurück (anders als bei
+    // gewöhnlichen HTML-Elementen), daher hier explizit über eine
+    // CSS-Klasse steuern statt über .hidden/[hidden].
+    document.getElementById("graph").classList.toggle("view-hidden", view !== "mindmap");
+    ringCanvas.classList.toggle("view-hidden", view !== "ring");
+    document.getElementById("btn-view-mindmap").classList.toggle("active", view === "mindmap");
+    document.getElementById("btn-view-ring").classList.toggle("active", view === "ring");
+    if (ringAnimHandle) cancelAnimationFrame(ringAnimHandle);
+    if (view === "mindmap") {
+      render();
+    } else {
+      ringLoop();
+    }
+  }
+
+  document.getElementById("btn-view-mindmap").addEventListener("click", () => switchView("mindmap"));
+  document.getElementById("btn-view-ring").addEventListener("click", () => switchView("ring"));
+  document.getElementById("btn-view-mindmap").classList.add("active");
+
+  // Jede Nachricht auch als Ring-Flash vormerken (unabhängig von der
+  // aktuell sichtbaren Ansicht, damit ein Wechsel keine Nachrichten verpasst)
+  socket.on("message", (msg) => {
+    const leafId = msg.path[msg.path.length - 1];
+    ringFlashes.push({ id: leafId, ts: performance.now() });
+    ringFlashes.push({ id: ROOT_ID, ts: performance.now() });
+  });
 })();

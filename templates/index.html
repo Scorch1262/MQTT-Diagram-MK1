@@ -38,9 +38,14 @@
   <main id="app">
     <section id="graph-wrap">
       <svg id="graph"></svg>
+      <canvas id="ring-canvas" class="view-hidden"></canvas>
       <div id="graph-toolbar">
+        <div id="view-toggle">
+          <button type="button" class="view-btn" id="btn-view-mindmap" data-view="mindmap">Mindmap</button>
+          <button type="button" class="view-btn" id="btn-view-ring" data-view="ring">Ring</button>
+        </div>
         <input type="text" id="search-box" placeholder="Topic suchen / hervorheben…" />
-        <button type="button" id="fit-btn" title="Baum einpassen">⤢</button>
+        <button type="button" id="fit-btn" title="Ansicht einpassen">⤢</button>
         <div id="stats">
           <span id="node-count">0</span> Topics ·
           <span id="msg-total">0</span> Nachrichten

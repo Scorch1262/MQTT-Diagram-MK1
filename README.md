@@ -16,6 +16,14 @@ Nachrichten eines MQTT-Brokers anzeigt.
 - Klick auf einen Knoten zeigt Details (Topic, Payload, QoS, Retain,
   Anzahl, Zeitstempel) an; zusätzlich gibt es einen Nachrichtenverlauf und
   eine Suchfunktion zum Hervorheben passender Topics.
+- Über zwei Buttons oben links im Diagramm kann zwischen der **Mindmap**-
+  Ansicht und einer alternativen **Ring**-Ansicht umgeschaltet werden: in
+  der Ring-Ansicht sitzt der Broker als Kreis in der Mitte, alle Topics
+  liegen als Knoten auf einem Ring darum herum, und neue Nachrichten
+  lassen die jeweilige Verbindungslinie kurz aufleuchten (angelehnt an die
+  Ring-Darstellung aus MQTT-Monitor-Dashboard-MK1 – ohne separaten
+  Client-Ring, da dieses Programm nur als Abonnent an einem externen
+  Broker hängt und keine einzelnen Client-IDs kennt).
 
 ## Lokal starten (Entwicklung)
 
@@ -35,7 +43,8 @@ server.py           Flask + SocketIO App, Routen & Events
 mqtt_manager.py      MQTT-Verbindung, Themenbaum, Nachrichtenverarbeitung
 templates/index.html Weboberfläche
 static/css/style.css Design
-static/js/app.js     D3-Mindmap, Live-Updates, Marker-Animation
+static/js/app.js     D3-Mindmap, Ring-Ansicht (Canvas), Live-Updates,
+                      Marker-/Flash-Animation, Umschalten der Ansicht
 static/js/d3.v7.min.js, static/js/socket.io.min.js
                       Lokal mitgelieferte Bibliotheken (funktioniert offline)
 mqtt_dashboard.spec  PyInstaller-Spezifikation (Windows + macOS)
