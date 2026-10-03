@@ -4,6 +4,32 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/),
 die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.5.1] – 2026-10-03
+
+### Geändert
+- Darstellungsaufbau der Ring-Ansicht korrigiert: der erste Entwurf zeigte
+  nur einen einzelnen Ring mit direkten Broker-Topic-Linien und
+  Regenbogenfarben – das entsprach nicht dem tatsächlichen Aufbau der
+  Vorlage. Jetzt wird der Aufbau aus `app.py` (Funktion `draw()`) 1:1
+  nachgebaut:
+  - Broker als gefüllter Kreis (r=26) in der Mitte; Füllung/Rahmen
+    amberfarben wenn verbunden, rot wenn nicht – unabhängig von
+    Nachrichten-Flashes (genau wie im Vorbild).
+  - Innerer Ring bei 28 % des kleineren Canvas-Maßes, äußerer Ring bei
+    46 % mit 0,15-rad-Winkelversatz – exakt die Radien/Offsets der
+    Vorlage.
+  - Kanten ausschließlich zwischen Broker↔Innenring und
+    Innenring↔Außenring, keine direkte Broker-Topic-Linie mehr.
+  - Farbschema (Türkis/Amber/Grau, `#2dd4bf`/`#ffb020`/`#5a6f77`) und
+    Knotengrößen (Innenring 12 px (+4·Flash), Außenring
+    `6 + log2(Nachrichten+1)` px) exakt wie in der Vorlage übernommen,
+    statt der bisherigen Regenbogen-Zweigfarben.
+  - Da dieses Programm nur als Abonnent an einem externen Broker hängt
+    und somit keine MQTT-Client-IDs kennt, übernimmt der Innenring die
+    obersten Themenzweige (1. Pfadebene) an der Stelle, an der die
+    Vorlage die Clients anzeigt; der Außenring zeigt wie im Original
+    die einzelnen Topics.
+
 ## [1.5.0] – 2026-10-03
 
 ### Hinzugefügt

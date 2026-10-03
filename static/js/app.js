@@ -328,7 +328,10 @@
   socket.on("status", (status) => setStatus(status));
 
   // ---- Verbindungs-UI --------------------------------------------------
+  let mqttConnected = false; // für die Broker-Einfärbung in der Ring-Ansicht
+
   function setStatus(status) {
+    mqttConnected = !!status.connected;
     const pill = document.getElementById("status-pill");
     const text = document.getElementById("status-text");
     const connectBtn = document.getElementById("connect-btn");
@@ -414,23 +417,42 @@
   });
 
   // =====================================================================
-  // Ring-Ansicht (Canvas) – alternative Darstellung nach dem Vorbild des
-  // MQTT-Monitor-Dashboard-MK1: Broker in der Mitte, Topics als Knoten auf
-  // einem Ring darum herum. Bei jeder Nachricht pulsiert die Verbindung
-  // zwischen Broker und dem betroffenen Topic auf. Eine eigene Client-Ebene
-  // gibt es hier nicht, da dieses Programm als reiner Subscriber an einem
-  // beliebigen externen Broker hängt und somit (anders als der eingebettete
-  // Broker im Vorbild) keine Kenntnis über einzelne MQTT-Clients hat – nur
-  // über Topics und deren Nachrichten.
+  // Ring-Ansicht (Canvas) – 1:1 nachgebauter Darstellungsaufbau aus dem
+  // Vorbild MQTT-Monitor-Dashboard-MK1 (app.py, Funktion draw()):
+  //   - Broker als gefüllter Kreis (r=26) in der Mitte, Füllung/Rahmen
+  //     amber wenn verbunden, rot wenn nicht.
+  //   - ein INNERER Ring bei 0.28*min(w,h) ("Client-Ring" im Vorbild)
+  //   - ein ÄUSSERER Ring bei 0.46*min(w,h), Winkel-Offset +0,15 rad
+  //     ("Topic-Ring" im Vorbild)
+  //   - Kanten NUR Broker<->Innenring (immer, dezentes Türkis) und
+  //     Innenring<->Außenring (nur bei tatsächlichem Bezug), NICHT
+  //     direkt Broker<->Außenring.
+  //   - Bei einer Nachricht flammen Kante + beide beteiligten Knoten
+  //     kurz amberfarben auf (Broker bleibt dabei unverändert, genau
+  //     wie im Vorbild).
+  //
+  // Das Vorbild zeigt im Innenring die MQTT-CLIENTS (es betreibt einen
+  // eigenen, eingebetteten Broker und kennt daher jeden Client) und im
+  // Außenring die Topics, auf die diese Clients publizieren/abonnieren.
+  // Dieses Programm hier verbindet sich dagegen nur als gewöhnlicher
+  // Abonnent mit einem beliebigen EXTERNEN Broker – dabei ist laut
+  // MQTT-Protokoll nicht sichtbar, welcher Client eine Nachricht
+  // veröffentlicht hat, es gibt also keine Client-Liste. Um trotzdem
+  // denselben zweistufigen Diagrammaufbau (Broker → Zwischenebene →
+  // Topic) zu erhalten, übernimmt der Innenring hier die obersten
+  // Themenzweige (1. Pfadebene, z.B. "home", "factory") an genau der
+  // Stelle, an der im Vorbild die Clients sitzen; der Außenring zeigt
+  // wie im Vorbild die einzelnen Topics (Blätter des Themenbaums).
   // =====================================================================
 
   let currentView = "mindmap";
   const ringCanvas = document.getElementById("ring-canvas");
   const ringCtx = ringCanvas.getContext("2d");
-  const ringFlashes = []; // { id, ts }
+  const ringFlashes = []; // { id, ts } – id ist eine Topic- oder Zweig-Node-ID
   let ringAnimHandle = null;
+  let ringClickTargets = [];
 
-  function ringTopicNodes() {
+  function ringLeafTopics() {
     const hasChildren = new Set();
     for (const n of nodesById.values()) {
       if (n.parent_id) hasChildren.add(n.parent_id);
@@ -444,14 +466,13 @@
     return leaves;
   }
 
-  function ringNodeDepth(id) {
-    let depth = 0;
-    let node = nodesById.get(id);
-    while (node && node.parent_id && node.parent_id !== ROOT_ID) {
-      node = nodesById.get(node.parent_id);
-      depth++;
+  function ringBranchNodes() {
+    const branches = [];
+    for (const n of nodesById.values()) {
+      if (n.parent_id === ROOT_ID) branches.push(n);
     }
-    return depth + 1;
+    branches.sort((a, b) => a.id.localeCompare(b.id));
+    return branches;
   }
 
   function resizeRingCanvas() {
@@ -460,110 +481,130 @@
     ringCanvas.height = wrap.clientHeight;
   }
 
+  function truncateLabel(label, max) {
+    return label.length > max ? label.slice(0, max - 2) + "…" : label;
+  }
+
   function drawRing() {
     resizeRingCanvas();
     const w = ringCanvas.width, h = ringCanvas.height;
     const cx = w / 2, cy = h / 2;
-    const radius = Math.max(120, Math.min(w, h) * 0.42);
+    // Radien/Winkel-Offset exakt wie im Vorbild (rClient / rTopic)
+    const rBranch = Math.min(w, h) * 0.28;
+    const rTopic = Math.min(w, h) * 0.46;
     ringCtx.clearRect(0, 0, w, h);
 
-    updateBranchColorScale();
-    const topics = ringTopicNodes();
+    const branches = ringBranchNodes();
+    const topics = ringLeafTopics();
     const now = performance.now();
 
-    // veraltete Flashes entfernen
     while (ringFlashes.length && now - ringFlashes[0].ts > 900) ringFlashes.shift();
     const flashAge = new Map();
     for (const f of ringFlashes) {
       const age = now - f.ts;
       if (!flashAge.has(f.id) || flashAge.get(f.id) > age) flashAge.set(f.id, age);
     }
+    const flashOf = (id) => {
+      const age = flashAge.get(id);
+      return age !== undefined ? Math.max(0, 1 - age / 900) : 0;
+    };
 
-    const rootNode = nodesById.get(ROOT_ID);
-    const brokerFlash = flashAge.has(ROOT_ID) ? Math.max(0, 1 - flashAge.get(ROOT_ID) / 900) : 0;
-
-    const positions = new Map();
+    const branchPos = new Map();
+    branches.forEach((b, i) => {
+      const a = (i / Math.max(branches.length, 1)) * 2 * Math.PI - Math.PI / 2;
+      branchPos.set(b.id, { x: cx + Math.cos(a) * rBranch, y: cy + Math.sin(a) * rBranch });
+    });
+    const topicPos = new Map();
     topics.forEach((t, i) => {
-      const angle = (i / Math.max(topics.length, 1)) * 2 * Math.PI - Math.PI / 2;
-      positions.set(t.id, {
-        x: cx + Math.cos(angle) * radius,
-        y: cy + Math.sin(angle) * radius,
-      });
+      const a = (i / Math.max(topics.length, 1)) * 2 * Math.PI - Math.PI / 2 + 0.15;
+      topicPos.set(t.id, { x: cx + Math.cos(a) * rTopic, y: cy + Math.sin(a) * rTopic });
     });
 
-    // ---- Verbindungslinien Broker <-> Topic ----
-    topics.forEach((t) => {
-      const p = positions.get(t.id);
-      const age = flashAge.get(t.id);
-      const flash = age !== undefined ? Math.max(0, 1 - age / 900) : 0;
-      const dimmed = searchTerm && !matchesSearch({ id: t.id, data: t });
-      const color = colorFor(t.id, ringNodeDepth(t.id));
+    // ---- Kanten: Broker <-> Zweig (immer sichtbar, dezentes Türkis) ----
+    ringCtx.lineWidth = 1;
+    branches.forEach((b) => {
+      const p = branchPos.get(b.id);
+      ringCtx.strokeStyle = "rgba(45,212,191,0.25)";
       ringCtx.beginPath();
       ringCtx.moveTo(cx, cy);
       ringCtx.lineTo(p.x, p.y);
-      if (flash > 0) {
-        ringCtx.strokeStyle = `rgba(246, 173, 85, ${0.35 + flash * 0.65})`;
-        ringCtx.lineWidth = 1.5 + flash * 3.5;
-      } else {
-        ringCtx.strokeStyle = dimmed ? "rgba(255,255,255,0.08)" : hexToRgba(color, 0.35);
-        ringCtx.lineWidth = 1.4;
-      }
       ringCtx.stroke();
     });
 
-    // ---- Broker-Knoten (Mitte) ----
-    const brokerR = 26 + brokerFlash * 6;
+    // ---- Kanten: Zweig <-> Topic (nur bei tatsächlicher Zugehörigkeit) ----
+    topics.forEach((t) => {
+      const tp = topicPos.get(t.id);
+      const branchId = branchKeyOf(t.id);
+      const bp = branchPos.get(branchId);
+      if (!bp) return;
+      const flash = flashOf(t.id);
+      ringCtx.strokeStyle = flash > 0 ? `rgba(255,176,32,${0.35 + 0.6 * flash})` : "rgba(45,212,191,0.15)";
+      ringCtx.lineWidth = flash > 0 ? 1.5 + 2.5 * flash : 1;
+      ringCtx.beginPath();
+      ringCtx.moveTo(bp.x, bp.y);
+      ringCtx.lineTo(tp.x, tp.y);
+      ringCtx.stroke();
+    });
+
+    // ---- Broker-Knoten (Mitte) – Farbe nach Verbindungsstatus, kein
+    // Nachrichten-Flash (genau wie im Vorbild) ----
     ringCtx.beginPath();
-    ringCtx.arc(cx, cy, brokerR, 0, 2 * Math.PI);
-    ringCtx.fillStyle = brokerFlash > 0 ? "#f6ad55" : ROOT_COLOR;
+    ringCtx.arc(cx, cy, 26, 0, 2 * Math.PI);
+    ringCtx.fillStyle = mqttConnected ? "rgba(255,176,32,0.18)" : "rgba(255,93,93,0.15)";
     ringCtx.fill();
     ringCtx.lineWidth = 2;
-    ringCtx.strokeStyle = "rgba(255,255,255,0.4)";
+    ringCtx.strokeStyle = mqttConnected ? "#ffb020" : "#ff5d5d";
     ringCtx.stroke();
-    ringCtx.fillStyle = "#06251f";
-    ringCtx.font = "bold 11px " + getComputedStyle(document.body).fontFamily;
+    ringCtx.fillStyle = "#ffb020";
+    ringCtx.font = "10px Consolas, monospace";
     ringCtx.textAlign = "center";
     ringCtx.textBaseline = "middle";
     ringCtx.fillText("BROKER", cx, cy);
 
-    // ---- Topic-Knoten ----
-    topics.forEach((t) => {
-      const p = positions.get(t.id);
-      const age = flashAge.get(t.id);
-      const flash = age !== undefined ? Math.max(0, 1 - age / 900) : 0;
-      const dimmed = searchTerm && !matchesSearch({ id: t.id, data: t });
-      const color = colorFor(t.id, ringNodeDepth(t.id));
-      const r = 6 + Math.min(10, Math.log2((t.msg_count || 0) + 1)) + flash * 3;
-
+    // ---- Zweig-Knoten (Innenring, an Stelle der Clients im Vorbild) ----
+    branches.forEach((b) => {
+      const p = branchPos.get(b.id);
+      const flash = flashOf(b.id);
+      const r = 12 + 4 * flash;
       ringCtx.beginPath();
       ringCtx.arc(p.x, p.y, r, 0, 2 * Math.PI);
-      ringCtx.fillStyle = flash > 0 ? "#f6ad55" : (dimmed ? "rgba(255,255,255,0.15)" : color);
+      ringCtx.fillStyle = flash > 0 ? `rgba(255,176,32,${0.3 + 0.4 * flash})` : "rgba(45,212,191,0.15)";
       ringCtx.fill();
-      ringCtx.lineWidth = t.id === selectedNodeId ? 2.5 : 1.2;
-      ringCtx.strokeStyle = t.id === selectedNodeId ? "#ffffff" : "rgba(255,255,255,0.35)";
+      ringCtx.lineWidth = 1.5;
+      ringCtx.strokeStyle = flash > 0 ? "#ffb020" : "#2dd4bf";
       ringCtx.stroke();
-
-      if (!dimmed || flash > 0) {
-        ringCtx.fillStyle = "#e7ecf7";
-        ringCtx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
-        ringCtx.textAlign = "center";
-        ringCtx.textBaseline = "top";
-        const label = (t.name || t.id).length > 16 ? (t.name || t.id).slice(0, 15) + "…" : (t.name || t.id);
-        ringCtx.fillText(label, p.x, p.y + r + 3);
-      }
+      ringCtx.fillStyle = "#dfe8ea";
+      ringCtx.font = "9px Consolas, monospace";
+      ringCtx.textAlign = "center";
+      ringCtx.textBaseline = "top";
+      ringCtx.fillText(truncateLabel(b.name || b.id, 14), p.x, p.y + r + 3);
     });
 
-    ringClickTargets = topics.map((t) => ({ id: t.id, x: positions.get(t.id).x, y: positions.get(t.id).y, r: 14 }));
+    // ---- Topic-Knoten (Außenring) ----
+    topics.forEach((t) => {
+      const p = topicPos.get(t.id);
+      const flash = flashOf(t.id);
+      const r = 6 + Math.min(10, Math.log2((t.msg_count || 0) + 1)) + 3 * flash;
+      ringCtx.beginPath();
+      ringCtx.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      ringCtx.fillStyle = flash > 0 ? `rgba(255,176,32,${0.35 + 0.5 * flash})` : "rgba(255,255,255,0.06)";
+      ringCtx.fill();
+      ringCtx.lineWidth = t.id === selectedNodeId ? 2 : 1;
+      ringCtx.strokeStyle = t.id === selectedNodeId ? "#ffffff" : (flash > 0 ? "#ffb020" : "#5a6f77");
+      ringCtx.stroke();
+      ringCtx.fillStyle = "#8fa3aa";
+      ringCtx.font = "9px Consolas, monospace";
+      ringCtx.textAlign = "center";
+      ringCtx.textBaseline = "top";
+      ringCtx.fillText(truncateLabel(t.name || t.id, 18), p.x, p.y + r + 3);
+    });
+
+    ringClickTargets = [
+      ...branches.map((b) => ({ id: b.id, x: branchPos.get(b.id).x, y: branchPos.get(b.id).y, r: 16 })),
+      ...topics.map((t) => ({ id: t.id, x: topicPos.get(t.id).x, y: topicPos.get(t.id).y, r: 14 })),
+    ];
   }
 
-  function hexToRgba(hex, alpha) {
-    const c = d3.color(hex);
-    if (!c) return `rgba(255,255,255,${alpha})`;
-    const rgb = c.rgb();
-    return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
-  }
-
-  let ringClickTargets = [];
   ringCanvas.addEventListener("click", (event) => {
     const rect = ringCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -605,10 +646,14 @@
   document.getElementById("btn-view-mindmap").classList.add("active");
 
   // Jede Nachricht auch als Ring-Flash vormerken (unabhängig von der
-  // aktuell sichtbaren Ansicht, damit ein Wechsel keine Nachrichten verpasst)
+  // aktuell sichtbaren Ansicht, damit ein Wechsel keine Nachrichten verpasst).
+  // Geflasht werden das betroffene Topic und sein Zweig-Knoten – der Broker
+  // selbst bleibt unverändert (siehe Vorbild).
   socket.on("message", (msg) => {
     const leafId = msg.path[msg.path.length - 1];
-    ringFlashes.push({ id: leafId, ts: performance.now() });
-    ringFlashes.push({ id: ROOT_ID, ts: performance.now() });
+    const ts = performance.now();
+    ringFlashes.push({ id: leafId, ts });
+    const branchId = branchKeyOf(leafId);
+    if (branchId) ringFlashes.push({ id: branchId, ts });
   });
 })();
